@@ -1,12 +1,5 @@
 #!/usr/bin/env bpftrace
 
-#ifndef BPFTRACE_HAVE_BTF
-#include <linux/socket.h>
-#include <net/sock.h>
-#else
-#define AF_INET   2
-#endif
-
 /**
  * A bpftrace program to monitor TCPv4 traffic using kprobes.
  * Outputs format: <remote-ip>:<remote-port><direction-arrow><local-ip>:<local-port>|<process metadata>
@@ -15,10 +8,24 @@
  * more reliable across different kernel versions
  */
 
+
+#ifndef BPFTRACE_HAVE_BTF
+#include <linux/socket.h>
+#include <net/sock.h>
+#else
+#define AF_INET   2
+#endif
+
+
 BEGIN
 {
     printf("Listening for TCPv4 traffic...\n");
 }
+
+/*
+    tcp_v4_connect is called when a TCP socket initiates an outgoing connection.
+    So this is useful to monitor OUTGOING connections from a client.
+*/
 
 // signature of the syscall:
 //    int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
@@ -62,6 +69,12 @@ kretprobe:tcp_v4_connect
     delete(@connections[pid]);
 }
 
+
+/*
+    The inet_csk_accept function is called when a TCP server socket accepts a new connection.
+    So this is useful to monitor INCOMING connections to a server.
+*/
+
 // struct sock *inet_csk_accept(struct sock *sk, int flags, int *err, bool kern);
 // see https://elixir.bootlin.com/linux/v6.8/source/include/net/inet_connection_sock.h#L255
 
@@ -74,6 +87,8 @@ kretprobe:inet_csk_accept
 
     //printf("FMON:%d\n", $inet_family);
 
+    // if inet family is AF_INET=10 this is an IPv4 connection
+    // if inet family is AF_INET6=2 this is an IPv6 connection
 	if ($inet_family == 10 || $inet_family == 2) {
         $saddr = $sock->__sk_common.skc_rcv_saddr; // u32
         $sport = $sock->__sk_common.skc_num;
