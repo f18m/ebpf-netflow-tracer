@@ -1,0 +1,94 @@
+#!/usr/bin/env bpftrace
+
+#ifndef BPFTRACE_HAVE_BTF
+#include <linux/socket.h>
+#include <net/sock.h>
+#else
+#define AF_INET   2
+#endif
+
+/**
+ * A bpftrace program to monitor TCPv4 traffic using kprobes.
+ * Outputs format: <remote-ip>:<remote-port><direction-arrow><local-ip>:<local-port>|<process metadata>
+ *
+ * Note: the "tracepoint/sock/inet_sock_set_state" could be another feasible approach,
+ * more reliable across different kernel versions
+ */
+
+BEGIN
+{
+    printf("Listening for TCPv4 traffic...\n");
+}
+
+// signature of the syscall:
+//    int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+// ^^ just in case I decide to switch to ksyscall
+//
+// signature of tcp_v4_connect:
+//    int tcp_v4_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len);
+// see https://elixir.bootlin.com/linux/v6.8/source/include/net/tcp.h#L472
+//
+// more refs:
+// https://github.com/iovisor/bcc/blob/master/examples/tracing/tcpv4connect.py
+// https://github.com/bpftrace/bpftrace/blob/master/tools/tcpconnect.bt
+kprobe:tcp_v4_connect
+{
+    $sk = (struct sock *)arg0;
+    @connections[pid] = $sk
+}
+
+kretprobe:tcp_v4_connect
+/@connections[pid]/
+{
+    if (retval != 0) {
+        delete(@connections[pid]);
+        return;
+    }
+
+    // get info out of the sock* -- see e.g. https://github.com/bpftrace/bpftrace/blob/master/tools/tcpconnect.bt
+    $sk = @connections[pid];
+
+    $lport = $sk->__sk_common.skc_num; // 
+    $daddr = ntop($sk->__sk_common.skc_daddr); // u32
+    $dport = $sk->__sk_common.skc_dport; // u16
+    $saddr = ntop($sk->__sk_common.skc_rcv_saddr); // u32
+
+    // Destination port is big endian, it must be flipped
+    $dport = bswap($dport);
+    
+    printf("%s:%d<-%s:%d|PID=%d CMD=%s\n",
+        $daddr, $dport, $saddr, $lport, pid, comm);
+
+    delete(@connections[pid]);
+}
+
+// struct sock *inet_csk_accept(struct sock *sk, int flags, int *err, bool kern);
+// see https://elixir.bootlin.com/linux/v6.8/source/include/net/inet_connection_sock.h#L255
+
+kretprobe:inet_csk_accept
+{
+    // see https://github.com/bpftrace/bpftrace/blob/master/tools/tcpaccept.bt
+
+    $sock = (struct sock *)retval;
+	$inet_family = $sock->__sk_common.skc_family;
+
+    //printf("FMON:%d\n", $inet_family);
+
+	if ($inet_family == 10 || $inet_family == 2) {
+        $saddr = $sock->__sk_common.skc_rcv_saddr; // u32
+        $sport = $sock->__sk_common.skc_num;
+        $daddr = $sock->__sk_common.skc_daddr; // u32
+        $dport = $sock->__sk_common.skc_dport;
+
+		// Destination port is big endian, it must be flipped
+		$dport = bswap($dport);
+
+        printf("%s:%d->%s:%d|PID=%d CMD=%s\n",
+              ntop($daddr), $dport, ntop($saddr), $sport, pid, comm);
+    }
+}
+
+END
+{
+    printf("Exiting TCPv4 traffic monitor.\n");
+}

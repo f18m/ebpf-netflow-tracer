@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traffic-sink
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tcp-server
+  name: tcp-server
+  namespace: traffic-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcp-server
+  template:
+    metadata:
+      labels:
+        app: tcp-server
+      name: tcp-server
+    spec:
+      terminationGracePeriodSeconds: 3
+      containers:
+        - image: itsthenetwork/alpine-ncat:latest
+          name: server
+          command: [ "/bin/sh", "-c", "ncat -l -k 5673" ]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcp-server
+  namespace: traffic-sink
+spec:
+  clusterIP: None
+  ports:
+    - port: 5673
+      protocol: TCP
+      targetPort: 5673
+  selector:
+    app: tcp-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tcp-client
+  name: tcp-client
+  namespace: traffic-sink
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tcp-client
+  template:
+    metadata:
+      labels:
+        app: tcp-client
+      name: tcp-client
+    spec:
+      terminationGracePeriodSeconds: 3
+      containers:
+        - image: itsthenetwork/alpine-ncat:latest
+          name: senddata
+          command: ["/bin/sh", "-c", "while echo \"Running\"; do echo \"Apple\"; sleep 1; done | ncat tcp-server 5673 -p 5674"]

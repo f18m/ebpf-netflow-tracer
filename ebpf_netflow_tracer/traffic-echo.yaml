@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traffic-echo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tcp-server
+  name: tcp-server
+  namespace: traffic-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcp-server
+  template:
+    metadata:
+      labels:
+        app: tcp-server
+      name: tcp-server
+    spec:
+      containers:
+        - args: ["5671", "hello"]
+          image: istio/tcp-echo-server:1.1
+          name: tcp-server
+          ports:
+            - containerPort: 5671
+              name: web-svc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tcp-server
+  namespace: traffic-echo
+spec:
+  clusterIP: None
+  ports:
+    - port: 5671
+      protocol: TCP
+      targetPort: 5671
+  selector:
+    app: tcp-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tcp-client
+  name: tcp-client
+  namespace: traffic-echo
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: tcp-client
+  template:
+    metadata:
+      labels:
+        app: tcp-client
+      name: tcp-client
+    spec:
+      terminationGracePeriodSeconds: 3
+      containers:
+        - image: itsthenetwork/alpine-ncat:latest
+          name: senddata
+          command: ["/bin/sh", "-c", "while echo \"Running\"; do echo \"Apple\"; sleep 1; done | ncat tcp-server 5671 -p 5672"]

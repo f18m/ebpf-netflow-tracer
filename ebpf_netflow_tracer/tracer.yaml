@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: bpftrace-daemon
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: bpftrace
+  template:
+    metadata:
+      labels:
+        app: bpftrace
+    spec:
+      #hostNetwork: true
+      #hostPID: true
+      terminationGracePeriodSeconds: 3
+      containers:
+      - name: bpftrace
+        image: quay.io/iovisor/bpftrace:latest
+        securityContext:
+          privileged: true
+        command:
+        - /bin/sh
+        - -c
+        - |
+          bpftrace /opt/solution.bt
+        volumeMounts:
+        - name: debugfs
+          mountPath: /sys/kernel/debug
+        - name: bpf-fs
+          mountPath: /sys/fs/bpf
+        - name: lib-modules
+          mountPath: /lib/modules
+        - name: usr-src
+          mountPath: /usr/src
+        - name: solution-bt
+          mountPath: /opt/solution.bt
+      volumes:
+      - name: debugfs
+        hostPath:
+          path: /sys/kernel/debug
+      - name: bpf-fs
+        hostPath:
+          path: /sys/fs/bpf
+      - name: lib-modules
+        hostPath:
+          path: /lib/modules
+      - name: usr-src
+        hostPath:
+          path: /usr/src
+      - name: solution-bt
+        hostPath:
+          path: /home/vagrant/shared/solution/solution.bt
+
