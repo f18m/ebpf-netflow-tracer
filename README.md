@@ -77,3 +77,7 @@ The output can be piped directly into Graphviz, for example:
 ```
 go run main.go < example.trace | dot -Tpng -o graph.png
 ```
+
+Example output:
+
+<img title="Example output" alt="output" src="net_visualizer/graph.png">
